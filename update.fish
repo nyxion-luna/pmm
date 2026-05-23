@@ -1,34 +1,35 @@
 function update --description 'Update your packages without the hassle of juggling fifteen different managers'
-    set -l update_version 0.2.0
+    set -f update_version 0.2.1
 
     argparse n/dry-run y/yes q/quiet v/verbose no-sudo 'log=' version -- $argv
 
-    if set -ql _flag_version
-        echo "Update version $update_version"
+    if set -q _flag_version
+        echo "update, version $update_version"
+        return 0
     end
 
-    if set -ql _flag_dry_run
-        set -f dry-run true
+    if set -q _flag_dry_run
+        set -f dry_run true
     end
 
-    if set -ql _flag_yes
-        set -f dry-run true
+    if set -q _flag_yes
+        set -f yes true
     end
 
-    if set -ql _flag_quiet
-        set -f dry-run true
+    if set -q _flag_quiet
+        set -f quiet true
     end
 
-    if set -ql _flag_verbose
-        set -f dry-run true
+    if set -q _flag_verbose
+        set -f verbose true
     end
 
-    if set -ql _flag_no_sudo
-        set -f dry-run true
+    if set -q _flag_no_sudo
+        set -f no_sudo true
     end
 
-    if set -ql _flag_log
-        set -f dry-run true
+    if set -q _flag_log
+        set -f log _flag_log
     end
 
     for manager in $argv
