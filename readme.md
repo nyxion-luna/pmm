@@ -28,3 +28,27 @@ The following package managers will eventually be implemented:
 - cargo
 - gem
 - nix
+
+## Roadmap
+
+There is a planned rebrand to 'pmm' but there is no specified date this rebrand will happen.
+
+### v1
+
+First working version (hopefully) without major bugs.
+This version will however only support apt. I want to do that python rewrite asap.
+
+v1.x -> More managers if I'm too lazy to rewrite this thing tho.
+
+### v2
+
+Rewrite to python with all features and managers in v1. Will be adding more.
+
+### v3
+
+Managing individual packages per manager (not autosearch, you have to input manager AND package name fully). This might be individual package updating or full on installation and removal of packages, depends on my willingness to write it at the time.
+
+### v4
+
+Automatic package searching
+v3 and v4 are things I will try to implement. No promises.
