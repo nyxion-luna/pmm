@@ -1,5 +1,5 @@
 function update --description 'Update your packages without the hassle of juggling fifteen different managers'
-    set -f _pmm_version 0.3.2
+    set -f _pmm_version 0.4.0
     set -f _pmm_checked
     set -g _pmm_no_update 0
     set -g _pmm_pkgs
@@ -48,7 +48,11 @@ function update --description 'Update your packages without the hassle of juggli
             set -a _pmm_list (set_color cyan)' '(string pad -r -w (math $ppad) $_pmm_pkgs[$i])(string pad -r -w (math $opad) $_pmm_oldv[$i])'-> '$_pmm_newv[$i](set_color cyan)
         end
 
-        echo $_pmm_list
+        # print out the list
+        echo
+        for line in $_pmm_list
+            echo $line
+        end
     end
 
     argparse n/dry-run y/yes q/quiet v/verbose no-sudo 'log=' version -- $argv
@@ -61,7 +65,7 @@ function update --description 'Update your packages without the hassle of juggli
     for manager in $argv
         switch $manager
             case apt
-                _pmm_print '----------- Checking apt --------------------------------------'
+                _pmm_print '-----------< Checking apt >--------------------------------------'
 
                 if contains apt $_pmm_checked
                     _pmm_print 'Skipping apt: already checked.'
@@ -112,7 +116,7 @@ function update --description 'Update your packages without the hassle of juggli
         end
     end
 
-    _pmm_print '----------- Finished checking ---------------------------------'
+    _pmm_print '-----------< Finished checking >---------------------------------'
 
     # does the user want to update?
     test $_pmm_no_update != (count $argv)
@@ -128,7 +132,9 @@ function update --description 'Update your packages without the hassle of juggli
         switch $confirm
             case Y y '' # default value is Y. if no input is given and enter is pressed read will return ''
                 _pmm_print 'Updating.'
-                for manager in $argv
+                set -q _flag_dry_run
+                and _pmm_print 'Skipping update cycle: --dry-run passed.'
+                or for manager in $argv
                     switch $manager
                         case apt
                             sudo apt-get upgrade -y
