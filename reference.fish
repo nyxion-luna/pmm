@@ -95,8 +95,11 @@ function update --description 'Update your packages without the hassle of juggli
                 # get the values for the upgradable packages list
                 for line in $upgradable
                     set -l splitline (string split ' ' $line)
+                    # @fish-lsp-disable-next-line 4004
                     set -a _pmm_pkgs $splitline[2] # package name
+                    # @fish-lsp-disable-next-line 4004
                     set -a _pmm_oldv (string trim -c '[]' $splitline[3]) # currently installed version
+                    # @fish-lsp-disable-next-line 4004
                     set -a _pmm_newv (string trim -c '(' $splitline[4]) # installation candidate
                 end
 

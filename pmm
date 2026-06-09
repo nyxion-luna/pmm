@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+import subprocess
+import argparse
+import sys
+
+version = '2.0.0-beta.2'
+MANAGERS = {
+    'apt': 'AptManager',
+    # 'flatpak': 'FlatpakManager',
+    # 'snap': 'SnapManager',
+    # 'pacman': 'PacmanManager',
+}
+
+parser = argparse.ArgumentParser(
+    prog='pmm',
+    description='Update your packages without the hassle of juggling fifteen different managers.',
+)
+
+parser.add_argument(
+    '-n',
+    '--dry-run',
+    help='run the script without making any changes to the system',
+    action='store_true',
+)
+parser.add_argument(
+    '-y',
+    '--yes',
+    help='automatically update without asking for verification, assuming yes',
+    action='store_true',
+)
+parser.add_argument(
+    '--no-sudo',
+    help='skips all package managers that require sudo',
+    action='store_true',
+)
+parser.add_argument(
+    '--version', help='print the program version and exit', action='store_true'
+)
+parser.add_argument(
+    'managers', nargs='*', help='package managers to update (apt, flatpak, etc.)'
+)
+
+args = parser.parse_args()
+
+if args.version:
+    print(f'pmm, version {version}')
+    sys.exit(0)
+
+
+def cyan(text):
+    """Print text in cyan color.
+
+    Args:
+        text: The text to print in cyan.
+    """
+    print('\033[36m' + text + '\033[39m')
+
+
+class PkgList:
+    def __init__(self):
+        self.plist = ''
+        self._has_updates = True
+
+    def create(self, packages: list[dict]) -> str:
+        """Create a formatted list of packages with version information.
+
+        Adds a heading and formats the text with ANSI escape codes for terminal output.
+
+        Args:
+            packages: List of package dictionaries with the following structure:
+                [
+                    {
+                        'name': str,   # Package name
+                        'oldv': str,   # Currently installed version
+                        'newv': str,   # Available installation candidate
+                    },
+                    ...
+                ]
+                The list can contain any number of packages.
+
+        Returns:
+            str: The formatted package list with ANSI escape codes applied.
+            This can be printed directly to the terminal or used for testing.
+        """
+        npad = max(len(p['name']) for p in packages) + 2  # name padding amount
+        opad = max(len(p['oldv']) for p in packages) + 2  # old version padding amount
+        # new version is trailing item in table and requires no padding
+
+        self.plist += (
+            '\033[1m'
+            + ' '
+            + 'Package'.ljust(npad)
+            + 'Old'.ljust(opad)
+            + 'New'
+            + '\033[22m'
+            + '\n'
+        )
+
+        for item in packages:
+            self.plist += (
+                ' '
+                + item['name'].ljust(npad)
+                + item['oldv'].ljust(opad)
+                + item['newv']
+                + '\n'
+            )
+
+        self.plist = self.plist[:-1]  # remove last newline
+
+        self.plist += '\033[0m'  # reset all styles
+
+        return self.plist
+
+    def updates(self, state: bool = None) -> bool:
+        """Query or set the availability of updates for the manager.
+
+        Args:
+            state: If provided, sets the update availability state. If None (default),
+                only queries the current state without modifying it.
+
+        Returns:
+            bool: The current state of update availability after any modification.
+        """
+        if state is not None:
+            self._has_updates = state
+
+        return self._has_updates
+
+    def output(self) -> int | str:
+        """Print the formatted package list to the terminal.
+
+        Returns:
+            int: 1 if the package list is empty.
+            str: The package list string if it was printed successfully.
+        """
+        if self.plist == '':
+            return 1
+
+        print(self.plist)
+        return self.plist
+
+
+for manager in args.managers:
+    match manager:
+        case 'apt':
+            cyan('-----------< Checking apt >--------------------------------------')
+
+            try:
+                aptlist
+                cyan('Skipping apt: already checked.')
+                continue
+            except:
+                pass
+
+            sudo = subprocess.run(['sudo', '-v'])
+            if sudo.returncode != 0:
+                cyan('Skipping apt: failed sudo verification.')
+                continue
+            aptupdate = subprocess.run('sudo apt-get update', shell=True)
+            if aptupdate.returncode != 0:
+                cyan("Skipping apt: error while executing 'sudo apt-get update'.")
+                continue
+
+            upgradableshell = subprocess.run(
+                'apt-get -o "APT::Get::Show-User-Simulation-Note=false" --quiet --quiet --simulate upgrade | grep ^Inst',
+                capture_output=True,
+                text=True,
+                shell=True,
+            )
+
+            aptlist = PkgList()
+
+            upgradable = upgradableshell.stdout.split('\n')
+            upgradable = [
+                item for item in upgradable if item != ''
+            ]  # clear empty values
+
+            if not upgradable:
+                aptlist.updates(False)
+                continue
+
+            packages = []
+            for line in upgradable:
+                splitline = line.split(' ')
+                packages.append(
+                    {
+                        'name': splitline[1],
+                        'oldv': splitline[2].strip('[]'),
+                        'newv': splitline[3].lstrip('('),
+                    }
+                )
+
+            aptlist.create(packages)
+
+        case _:
+            cyan(f'Unknown manager {repr(manager)}. Skipping to the next.')
+
+cyan('-----------< Finished checking >---------------------------------')
