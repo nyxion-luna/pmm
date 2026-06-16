@@ -1,40 +1,36 @@
 #!/usr/bin/env python3
+from abc import ABC, abstractmethod
 import subprocess
 import argparse
+import shlex
 import sys
 
-version = '2.0.0-beta.2'
-MANAGERS = {
-    'apt': 'AptManager',
-    # 'flatpak': 'FlatpakManager',
-    # 'snap': 'SnapManager',
-    # 'pacman': 'PacmanManager',
-}
 
+version = '2.0.0-beta.3'
 parser = argparse.ArgumentParser(
     prog='pmm',
     description='Update your packages without the hassle of juggling fifteen different managers.',
 )
 
-parser.add_argument(
+parser.add_argument(  # tba
     '-n',
     '--dry-run',
     help='run the script without making any changes to the system',
     action='store_true',
 )
-parser.add_argument(
+parser.add_argument(  # tba
     '-y',
     '--yes',
     help='automatically update without asking for verification, assuming yes',
     action='store_true',
 )
-parser.add_argument(
+parser.add_argument(  # tba
     '--no-sudo',
     help='skips all package managers that require sudo',
     action='store_true',
 )
 parser.add_argument(
-    '--version', help='print the program version and exit', action='store_true'
+    '-v', '--version', help='print the program version and exit', action='store_true'
 )
 parser.add_argument(
     'managers', nargs='*', help='package managers to update (apt, flatpak, etc.)'
@@ -48,20 +44,22 @@ if args.version:
 
 
 def cyan(text):
-    """Print text in cyan color.
+    """Returns text in cyan color.
 
     Args:
-        text: The text to print in cyan.
+        text: The text to return in cyan.
     """
-    print('\033[36m' + text + '\033[39m')
+    return f'\033[36m{text}\033[39m'
 
 
 class PkgList:
+    """Represents a formatted list of packages with version information."""
+
     def __init__(self):
         self.plist = ''
         self._has_updates = True
 
-    def create(self, packages: list[dict]) -> str:
+    def create(self, packages: list[dict], name: str) -> str | None:
         """Create a formatted list of packages with version information.
 
         Adds a heading and formats the text with ANSI escape codes for terminal output.
@@ -81,10 +79,15 @@ class PkgList:
         Returns:
             str: The formatted package list with ANSI escape codes applied.
             This can be printed directly to the terminal or used for testing.
+            None: The method will return None if there is any error.
         """
-        npad = max(len(p['name']) for p in packages) + 2  # name padding amount
-        opad = max(len(p['oldv']) for p in packages) + 2  # old version padding amount
-        # new version is trailing item in table and requires no padding
+        if not packages:
+            return None
+
+        npad = max(len(p['name']) for p in packages) + 2
+        opad = max(len(p['oldv']) for p in packages) + 2
+
+        self.plist += f"\033[1;36m {f' {name} '.center(20, '=')}\033[22;39m\n\n"
 
         self.plist += (
             '\033[1m'
@@ -126,73 +129,180 @@ class PkgList:
 
         return self._has_updates
 
-    def output(self) -> int | str:
+    def output(self, name: str = None) -> bool:
         """Print the formatted package list to the terminal.
 
         Returns:
-            int: 1 if the package list is empty.
-            str: The package list string if it was printed successfully.
+            bool: True on success, False if the list is empty or if no updates are available.
         """
-        if self.plist == '':
-            return 1
+
+        if not self._has_updates or self.plist == '':
+            # this code corrects undefined lists or no updates lists
+            self._has_updates = False
+            self.plist = ''
+            self.plist += f"\033[1;36m {f' {name} '.center(20, '=')}\033[22m\n\n"
+            self.plist += ' No updates available.\033[39m'
+            return False
 
         print(self.plist)
-        return self.plist
+        return True
 
 
-for manager in args.managers:
-    match manager:
-        case 'apt':
-            cyan('-----------< Checking apt >--------------------------------------')
+class BaseManager(ABC):
+    """Common interface for all package manager wrappers."""
 
-            try:
-                aptlist
-                cyan('Skipping apt: already checked.')
-                continue
-            except:
-                pass
+    def __init__(self, name: str, requires_sudo: bool = False):
+        """Initialize a package manager.
 
-            sudo = subprocess.run(['sudo', '-v'])
-            if sudo.returncode != 0:
-                cyan('Skipping apt: failed sudo verification.')
-                continue
-            aptupdate = subprocess.run('sudo apt-get update', shell=True)
-            if aptupdate.returncode != 0:
-                cyan("Skipping apt: error while executing 'sudo apt-get update'.")
-                continue
+        Args:
+            name: The name of the package manager (e.g., 'apt', 'flatpak').
+            requires_sudo: Whether this manager requires sudo privileges.
+        """
+        self.name = name
+        self.requires_sudo = requires_sudo
+        # Shared list – keep the class‑level attribute if you need global access
+        self.__class__.list = PkgList()  # e.g. AptManager.list, FlatpakManager.list...
 
-            upgradableshell = subprocess.run(
-                'apt-get -o "APT::Get::Show-User-Simulation-Note=false" --quiet --quiet --simulate upgrade | grep ^Inst',
-                capture_output=True,
-                text=True,
-                shell=True,
+    @abstractmethod
+    def check(self):
+        """Check method that subclasses must implement.
+
+        Returns:
+            Will raise NotImplementedError as this class must implemented.
+        """
+
+        raise NotImplementedError('Subclasses must implement this method.')
+
+    @abstractmethod
+    def update(self):
+        """Update method that subclasses must implement.
+
+        Returns:
+            Will raise NotImplementedError as this class must implemented.
+        """
+
+        raise NotImplementedError('Subclasses must implement this method.')
+
+    # Shared helper method
+    def verify_sudo(self) -> bool:
+        """Check whether the user has sudo.
+
+        Returns:
+            True if the check succeeds, False otherwise
+        """
+
+        if subprocess.run(['sudo', '-v']).returncode != 0:
+            return False
+        return True
+
+
+class AptManager(BaseManager):
+    def __init__(self):
+        super().__init__(name='apt', requires_sudo=True)
+
+    def check(self):
+        print(
+            cyan(
+                '\n-----------< Checking apt >--------------------------------------\n'
+            )
+        )
+        if not self.verify_sudo():
+            print(cyan('Skipping apt: failed sudo verification.'))
+            return None
+
+        try:
+            subprocess.run(['sudo', 'apt-get', 'update'], check=True)
+        except subprocess.CalledProcessError:
+            print(cyan("\nSkipping apt: error while executing 'sudo apt-get update'."))
+            self.__class__.list.updates(False)
+            return None
+
+        upgradable = subprocess.run(
+            [
+                'apt-get',
+                '-o',
+                '"APT::Get::Show-User-Simulation-Note=false"',
+                '--quiet',
+                '--quiet',
+                '--simulate',
+                'upgrade',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split('\n')
+        upgradable = [
+            line for line in upgradable if line != '' if line.startswith('Inst ')
+        ]  # clear empty values
+
+        if not upgradable:
+            self.__class__.list.updates(False)
+            return None
+
+        packages = []
+        for line in upgradable:
+            splitline = shlex.split(line)
+            packages.append(
+                {
+                    'name': splitline[1],
+                    'oldv': splitline[2].strip('[]'),
+                    'newv': splitline[3].lstrip('('),
+                }
             )
 
-            aptlist = PkgList()
+        self.__class__.list.create(packages, 'Apt')
 
-            upgradable = upgradableshell.stdout.split('\n')
-            upgradable = [
-                item for item in upgradable if item != ''
-            ]  # clear empty values
+        return self.__class__.list
 
-            if not upgradable:
-                aptlist.updates(False)
-                continue
+    def update(self):
+        pass
 
-            packages = []
-            for line in upgradable:
-                splitline = line.split(' ')
-                packages.append(
-                    {
-                        'name': splitline[1],
-                        'oldv': splitline[2].strip('[]'),
-                        'newv': splitline[3].lstrip('('),
-                    }
-                )
 
-            aptlist.create(packages)
+MANAGERS = {'apt': AptManager}
 
-        case _:
-            cyan(f'Unknown manager {repr(manager)}. Skipping to the next.')
+instances: dict[str, BaseManager] = {}
 
-cyan('-----------< Finished checking >---------------------------------')
+for name in args.managers:
+    if name in instances:
+        print(cyan(f'Skipping {name}: already checked.'))
+        continue
+
+    if name not in MANAGERS:
+        print(cyan(f'Unknown manager {repr(name)}. Skipping to the next.'))
+        continue
+
+    instances[name] = MANAGERS[name]()
+    instances[name].check()
+
+print(cyan('\n-----------< Finished checking >---------------------------------\n'))
+
+has_updates = False
+for name, obj in instances.items():
+    obj.list.output(name)
+    if obj.list.updates():
+        has_updates = True
+
+if has_updates:
+    choice = (
+        input(
+            cyan(
+                '''
+Would you like to update?
+[Y]es / [N]o / [S]elect specific manager(s): '''
+            )
+        )
+        .strip()
+        .lower()
+    )
+
+    match choice:
+        case 'y':
+            for name, obj in instances.items():
+                if obj.list.updates():
+                    obj.update()
+        case 'n':
+            print(cyan('\nExiting.'))
+        case 's':
+            pass
+
+print()
