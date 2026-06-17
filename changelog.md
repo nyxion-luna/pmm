@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0-beta.4
+
+- finished the updating logic for apt
+- implemented --dry-run --no-sudo and --yes flags
+- made the package list per manager no longer a global variable
+- clarified the info for the --dry-run flag
+- implemented a sudo keepalive to avoid running into extra sudo checks
+- made the default state of _has_updates False
+- added a header function
+- fixed PkgList.output() not printing before returning
+- removed the BaseManager.verify_sudo() method in favour of the background keepalive
+- added check for whether any manager ended up in instances
+- added a default choice to the update query
+
 ## 2.0.0-beta.3
 
 - moved manager checking logic into its own class
