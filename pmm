@@ -1,30 +1,33 @@
 #!/usr/bin/env python3
 from abc import ABC, abstractmethod
 import subprocess
+import threading
 import argparse
 import shlex
 import sys
 
 
-version = '2.0.0-beta.3'
+VERSION = '2.0.0-beta.4'
+stop_sudo = threading.Event()
+
 parser = argparse.ArgumentParser(
     prog='pmm',
     description='Update your packages without the hassle of juggling fifteen different managers.',
 )
 
-parser.add_argument(  # tba
+parser.add_argument(
     '-n',
     '--dry-run',
-    help='run the script without making any changes to the system',
+    help='run the script without actually upgrading the packages',
     action='store_true',
 )
-parser.add_argument(  # tba
+parser.add_argument(
     '-y',
     '--yes',
     help='automatically update without asking for verification, assuming yes',
     action='store_true',
 )
-parser.add_argument(  # tba
+parser.add_argument(
     '--no-sudo',
     help='skips all package managers that require sudo',
     action='store_true',
@@ -39,11 +42,11 @@ parser.add_argument(
 args = parser.parse_args()
 
 if args.version:
-    print(f'pmm, version {version}')
+    print(f'pmm, version {VERSION}')
     sys.exit(0)
 
 
-def cyan(text):
+def cyan(text: str) -> str:
     """Returns text in cyan color.
 
     Args:
@@ -52,12 +55,30 @@ def cyan(text):
     return f'\033[36m{text}\033[39m'
 
 
+def header(text: str) -> str:
+    """Returns the text provided converted into a heading.
+
+    Args:
+        text: The text to return as a heading.
+    """
+    return f'---------------< {text} >'.ljust(75, '-')
+
+
+def keepsudo():
+    """Background sudo keepalive thread."""
+    while not stop_sudo.is_set():
+        subprocess.run(
+            ['sudo', '-v'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        stop_sudo.wait(150)
+
+
 class PkgList:
     """Represents a formatted list of packages with version information."""
 
     def __init__(self):
         self.plist = ''
-        self._has_updates = True
+        self._has_updates = False
 
     def create(self, packages: list[dict], name: str) -> str | None:
         """Create a formatted list of packages with version information.
@@ -112,6 +133,8 @@ class PkgList:
 
         self.plist += '\033[0m'  # reset all styles
 
+        self._has_updates = True
+
         return self.plist
 
     def updates(self, state: bool = None) -> bool:
@@ -135,13 +158,12 @@ class PkgList:
         Returns:
             bool: True on success, False if the list is empty or if no updates are available.
         """
-
         if not self._has_updates or self.plist == '':
             # this code corrects undefined lists or no updates lists
-            self._has_updates = False
             self.plist = ''
             self.plist += f"\033[1;36m {f' {name} '.center(20, '=')}\033[22m\n\n"
             self.plist += ' No updates available.\033[39m'
+            print(self.plist)
             return False
 
         print(self.plist)
@@ -160,8 +182,7 @@ class BaseManager(ABC):
         """
         self.name = name
         self.requires_sudo = requires_sudo
-        # Shared list – keep the class‑level attribute if you need global access
-        self.__class__.list = PkgList()  # e.g. AptManager.list, FlatpakManager.list...
+        self.list = PkgList()
 
     @abstractmethod
     def check(self):
@@ -183,40 +204,21 @@ class BaseManager(ABC):
 
         raise NotImplementedError('Subclasses must implement this method.')
 
-    # Shared helper method
-    def verify_sudo(self) -> bool:
-        """Check whether the user has sudo.
-
-        Returns:
-            True if the check succeeds, False otherwise
-        """
-
-        if subprocess.run(['sudo', '-v']).returncode != 0:
-            return False
-        return True
-
 
 class AptManager(BaseManager):
     def __init__(self):
         super().__init__(name='apt', requires_sudo=True)
 
     def check(self):
-        print(
-            cyan(
-                '\n-----------< Checking apt >--------------------------------------\n'
-            )
-        )
-        if not self.verify_sudo():
-            print(cyan('Skipping apt: failed sudo verification.'))
-            return None
+        print(cyan(f"\n{header(f'Checking {self.name}')}\n"))
 
         try:
             subprocess.run(['sudo', 'apt-get', 'update'], check=True)
         except subprocess.CalledProcessError:
-            print(cyan("\nSkipping apt: error while executing 'sudo apt-get update'."))
-            self.__class__.list.updates(False)
+            print(cyan("Skipping apt: error while executing 'sudo apt-get update'."))
             return None
 
+        # command source: https://sleeplessbeastie.eu/2025/02/06/how-to-list-upgradeable-packages-with-apt-and-apt-get/
         upgradable = subprocess.run(
             [
                 'apt-get',
@@ -236,7 +238,6 @@ class AptManager(BaseManager):
         ]  # clear empty values
 
         if not upgradable:
-            self.__class__.list.updates(False)
             return None
 
         packages = []
@@ -250,59 +251,112 @@ class AptManager(BaseManager):
                 }
             )
 
-        self.__class__.list.create(packages, 'Apt')
+        self.list.create(packages, 'Apt')
 
-        return self.__class__.list
+        return self.list
 
     def update(self):
-        pass
+        try:
+            subprocess.run(['sudo', 'apt-get', 'upgrade', '--yes'], check=True)
+        except subprocess.CalledProcessError:
+            print(cyan(f'Skipping {self.name} update: error while updating.'))
 
 
 MANAGERS = {'apt': AptManager}
 
 instances: dict[str, BaseManager] = {}
 
-for name in args.managers:
-    if name in instances:
-        print(cyan(f'Skipping {name}: already checked.'))
+# sudo keepalive
+if not args.no_sudo:
+    needs_sudo = False
+    # check if we actually need sudo
+    for man in args.managers:
+        if man in MANAGERS and MANAGERS[man]().requires_sudo:
+            needs_sudo = True
+            break
+    # ask for sudo
+    if needs_sudo and subprocess.run(['sudo', '-v']).returncode == 0:
+        # start sudo thread
+        threading.Thread(target=keepsudo, daemon=True).start()
+    elif needs_sudo:
+        # failed sudo verification
+        print(cyan('Exiting: failed sudo verification.'))
+        sys.exit(1)
+
+# check for updates
+for man in args.managers:
+    if man in instances:
+        print(cyan(f'\nSkipping {man}: already checked.'))
         continue
 
-    if name not in MANAGERS:
-        print(cyan(f'Unknown manager {repr(name)}. Skipping to the next.'))
+    if man not in MANAGERS:
+        print(cyan(f'\nUnknown manager {repr(man)}. Skipping to the next.'))
         continue
 
-    instances[name] = MANAGERS[name]()
-    instances[name].check()
+    instances[man] = MANAGERS[man]()
 
-print(cyan('\n-----------< Finished checking >---------------------------------\n'))
+    if args.no_sudo and instances[man].requires_sudo is True:
+        print(cyan(f'\nSkipping {man}: requires sudo.'))
+        continue
 
+    instances[man].check()
+
+# make sure we recognize at least one manager
+if instances == {}:
+    print(
+        cyan(
+            f'''\
+No managers have been recognized. The following managers are supported:
+{', '.join(MANAGERS.keys())}
+'''
+        )
+    )
+    stop_sudo.set()
+    sys.exit(1)
+
+print(cyan(f"\n{header('Finished checking')}\n"))
+
+# did the previous check return any new updates?
 has_updates = False
-for name, obj in instances.items():
-    obj.list.output(name)
+for man, obj in instances.items():
+    obj.list.output(man)
     if obj.list.updates():
         has_updates = True
 
+# if we do have to update anything
 if has_updates:
-    choice = (
-        input(
-            cyan(
-                '''
+    if not args.yes:
+        choice = (
+            input(
+                cyan(
+                    '''
 Would you like to update?
-[Y]es / [N]o / [S]elect specific manager(s): '''
+[Y]es / [n]o / [s]elect specific manager(s): '''
+                )
             )
+            .strip()
+            .lower()
         )
-        .strip()
-        .lower()
-    )
+    else:
+        choice = 'y'
 
+    print()
     match choice:
-        case 'y':
-            for name, obj in instances.items():
+        case 'y' | '':
+            for man, obj in instances.items():
                 if obj.list.updates():
-                    obj.update()
+                    if not args.dry_run:
+                        obj.update()
+                    else:
+                        print(cyan(f'Skipping {man} update: --dry-run passed'))
+                else:
+                    print(cyan(f'No updates available for {man}.'))
         case 'n':
-            print(cyan('\nExiting.'))
+            print(cyan('Exiting.'))
+            stop_sudo.set()
+            sys.exit(0)
         case 's':
             pass
 
+stop_sudo.set()
 print()
