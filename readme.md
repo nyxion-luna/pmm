@@ -31,15 +31,15 @@ The following package managers will eventually be implemented:
 
 ## Roadmap
 
-### v2
-
-Rewrite to python with all features and managers in v1 (fish). Will be adding more.
-
 ### v3
 
-Managing individual packages per manager (not autosearch, you have to input manager AND package name fully). This might be individual package updating or full on installation and removal of packages, depends on my willingness to write it at the time.
+A rewrite of v2 with a reimplementation of all features in that version in a readable package-friendly format.
 
 ### v4
 
+Managing individual packages per manager (not autosearch, you have to input manager AND package name fully). This might be individual package updating or full on installation and removal of packages, depends on my willingness to write it at the time.
+
+### v5
+
 Automatic package searching
-v3 and v4 are things I will try to implement. No promises.
+v4 and v5 are things I will try to implement. No promises.
