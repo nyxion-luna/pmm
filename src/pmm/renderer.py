@@ -1,6 +1,6 @@
 from pmm.models import PackageUpdate
+from pmm.utils.colors import bold, cyan, cyan_bold
 from pmm.utils.headers import small
-from pmm.utils.colors import cyan, bold, cyan_bold
 
 
 def render(manager: str, packages: list[PackageUpdate]) -> None:

@@ -1,5 +1,5 @@
-import subprocess
 import shlex
+import subprocess
 from pmm.managers.base import BaseManager
 from pmm.models import PackageUpdate
 

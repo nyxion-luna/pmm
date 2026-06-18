@@ -1,4 +1,3 @@
-# return text in selected style
 def cyan(text: str) -> str:
     return f'\033[36m{text}\033[39m'
 

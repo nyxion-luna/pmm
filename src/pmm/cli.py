@@ -1,7 +1,8 @@
 import argparse
+import sys
+from pmm import __description__, __version__
 from pmm.core import Core
 from pmm.renderer import render
-from pmm import __version__
 
 
 def main():
@@ -41,7 +42,7 @@ def main():
 
     if args.version:
         print(f'pmm, version {__version__}')
-        exit(0)
+        sys.exit(0)
 
     core = Core()
     core.run(args.managers)
@@ -60,7 +61,3 @@ def main():
                     mgr_cls = core.results.get(name)
             case _:
                 return
-
-
-if __name__ == '__main__':
-    main()
