@@ -1,7 +1,7 @@
 import shlex
-import subprocess
 from pmm.managers.base import BaseManager
 from pmm.models import PackageUpdate
+from pmm.utils.process import run
 
 
 class AptManager(BaseManager):
@@ -9,9 +9,9 @@ class AptManager(BaseManager):
         super().__init__(name='apt', requires_sudo=True)
 
     def check(self) -> list[PackageUpdate]:
-        subprocess.run(['sudo', 'apt-get', 'update'], check=True)
+        run(['sudo', 'apt-get', 'update'])
 
-        raw = subprocess.run(
+        raw = run(
             [
                 'apt-get',
                 '--quiet',
@@ -21,7 +21,6 @@ class AptManager(BaseManager):
             ],
             capture_output=True,
             text=True,
-            check=True,
         ).stdout.splitlines()
 
         updates = []
@@ -43,4 +42,4 @@ class AptManager(BaseManager):
         return updates
 
     def update(self) -> None:
-        subprocess.run(['sudo', 'apt-get', 'upgrade', '--yes'], check=True)
+        run(['sudo', 'apt-get', 'upgrade', '--yes'])

@@ -1,5 +1,5 @@
-import subprocess
 import threading
+from pmm.utils.process import *
 
 
 stop = threading.Event()
@@ -7,5 +7,5 @@ stop = threading.Event()
 
 def keepsudo():
     while not stop.is_set():
-        subprocess.run(['sudo', '-v'], stdout=subprocess.DEVNULL)
+        run(['sudo', '-v'], stdout=DEVNULL)
         stop.wait(150)

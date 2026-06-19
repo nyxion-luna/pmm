@@ -42,4 +42,5 @@ Managing individual packages per manager (not autosearch, you have to input mana
 ### v5
 
 Automatic package searching
+
 v4 and v5 are things I will try to implement. No promises.
